@@ -100,5 +100,74 @@
 )
 
 
+(define-public (public-mint)
+    (let
+        (
+            (token-id (+ (var-get last-token-id) u1))
+            (mint-cost (var-get mint-price))
+        )
+        (try! (stx-transfer? mint-cost tx-sender contract-owner))
+        (try! (nft-mint? digital-art token-id tx-sender))
+        (map-set token-metadata token-id {
+            name: "Digital Art NFT",
+            description: "A unique piece of digital art",
+            image: "",
+            creator: tx-sender
+        })
+        (var-set last-token-id token-id)
+        (ok token-id)
+    )
+)
 
-;;
+(define-public (list-for-sale (token-id uint) (price uint))
+    (let
+        (
+            (owner (unwrap! (nft-get-owner? digital-art token-id) err-token-not-found))
+        )
+        (asserts! (> token-id u0) err-invalid-token-id)
+        (asserts! (> price u0) err-invalid-price)
+        (asserts! (is-eq tx-sender owner) err-not-token-owner)
+        (map-set marketplace-listings token-id {price: price, seller: tx-sender})
+        (ok true)
+    )
+)
+
+(define-public (buy-nft (token-id uint))
+    (let
+        (
+            (listing (unwrap! (map-get? marketplace-listings token-id) err-listing-not-found))
+            (price (get price listing))
+            (seller (get seller listing))
+            (metadata (unwrap! (map-get? token-metadata token-id) err-token-not-found))
+            (creator (get creator metadata))
+            (royalty (/ (* price (var-get royalty-percent)) u100))
+            (seller-amount (- price royalty))
+        )
+        (asserts! (> token-id u0) err-invalid-token-id)
+        (asserts! (not (is-eq tx-sender seller)) err-self-transfer)
+        (try! (stx-transfer? seller-amount tx-sender seller))
+        (try! (stx-transfer? royalty tx-sender creator))
+        (try! (nft-transfer? digital-art token-id seller tx-sender))
+        (map-delete marketplace-listings token-id)
+        (ok true)
+    )
+)
+
+;; Admin functions
+(define-public (set-mint-price (new-price uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (> new-price u0) err-invalid-price)
+        (var-set mint-price new-price)
+        (ok true)
+    )
+)
+
+(define-public (set-base-uri (new-uri (string-ascii 256)))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (> (len new-uri) u0) err-invalid-token-id)
+        (var-set base-uri new-uri)
+        (ok true)
+    )
+)
